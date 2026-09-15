@@ -1,0 +1,20 @@
+name = "sl-dashboard"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Non-secret config. Fill these in, then `wrangler deploy`.
+[vars]
+LARK_APP_ID = "REPLACE_ME_LARK_APP_ID"
+TELEGRAM_ALLOWED_CHAT_ID = "-5343409122"
+
+# Create with: wrangler kv namespace create DASHBOARD_KV
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "DASHBOARD_KV"
+id = "REPLACE_ME_KV_NAMESPACE_ID"
+
+# Secrets — set with `wrangler secret put <NAME>`, never written here:
+#   LARK_APP_SECRET
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_WEBHOOK_SECRET
+#   WORKER_ADMIN_TOKEN
