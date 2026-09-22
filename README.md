@@ -1,7 +1,7 @@
 # CS Team Dashboard
 
 Đọc **chỉ đọc** (read-only) dữ liệu từ 1 Lark Base, tổng hợp thành 1 trang
-dashboard 6 tab, cập nhật theo yêu cầu qua lệnh `/pp` trong 1 nhóm Telegram
+dashboard 6 tab, cập nhật theo yêu cầu qua lệnh `/new` trong 1 nhóm Telegram
 cụ thể. Không có thao tác ghi nào vào Lark. Không dùng Shopify.
 
 ## 6 tab
@@ -28,12 +28,12 @@ trên máy ảo thật, gọi bao nhiêu request cũng được trong 1 lần, n
 
 **Phục vụ trang & nhận lệnh Telegram = Cloudflare Worker.** Worker không gọi
 Lark nữa — chỉ làm 2 việc: (1) trả HTML đã build sẵn từ Cloudflare KV cho
-bất kỳ ai mở link, (2) khi có `/pp` hoặc gọi `/run`, gọi API
+bất kỳ ai mở link, (2) khi có `/new` hoặc gọi `/run`, gọi API
 `repository_dispatch` của GitHub để **kích hoạt Action chạy ngay** (không
 phải lịch tự động — chỉ chạy khi có người yêu cầu).
 
 ```
-Telegram (gõ /pp)                 GitHub Actions (refresh-dashboard.yml)
+Telegram (gõ /new)                 GitHub Actions (refresh-dashboard.yml)
      │ POST /telegram                    │
      ▼                                   │  scripts/build-and-publish.mjs:
 Cloudflare Worker (src/index.js)         │  - gọi Lark, tải cả 14 bảng
@@ -48,7 +48,7 @@ GET /  ←── trả HTML từ KV ──────── Cloudflare KV (dash
 ```
 
 Không có cron, không có lịch tự động, không có state machine nhiều bước —
-mỗi lần `/pp` là đúng 1 lần Action chạy trọn vẹn từ đầu đến cuối.
+mỗi lần `/new` là đúng 1 lần Action chạy trọn vẹn từ đầu đến cuối.
 
 ## Yêu cầu trước khi setup
 
@@ -168,7 +168,7 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
 Vào nhóm Telegram "CS Dashboard", gõ:
 
 ```
-/pp
+/new
 ```
 
 Bot trả lời "⏳ Đã yêu cầu cập nhật..." ngay lập tức, rồi khoảng 1-2 phút
@@ -191,3 +191,4 @@ Test này build dashboard bằng dữ liệu giả, xác nhận toàn bộ analy
 - `/run` chỉ chạy khi có đúng `WORKER_ADMIN_TOKEN`.
 - GitHub Personal Access Token chỉ cần scope `repo`, không cần quyền admin/org nào khác.
 - Không secret nào được hard-code trong code hay commit vào git — Cloudflare secrets set bằng `wrangler secret put`, GitHub secrets set qua Settings → Secrets and variables → Actions.
+

@@ -1,7 +1,7 @@
 name: Refresh dashboard
 
 # Triggered on demand by the Cloudflare Worker (repository_dispatch — see
-# src/index.js's triggerGithubRefresh) when someone types /pp in Telegram,
+# src/index.js's triggerGithubRefresh) when someone types /new in Telegram,
 # or manually via /run?token=... . No schedule: this only runs when someone
 # actually asks for a refresh. A GitHub Actions runner has no per-run
 # subrequest cap, so the whole 14-table fetch + dashboard build happens in
@@ -31,3 +31,4 @@ jobs:
           CLIENT_CHAT_ID: ${{ github.event.client_payload.chat_id }}
           CLIENT_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
           CLIENT_ORIGIN: ${{ github.event.client_payload.origin }}
+

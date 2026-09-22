@@ -57,7 +57,7 @@ export default {
         return new Response(cached, { headers: { "Content-Type": "text/html; charset=UTF-8" } });
       }
       return new Response(
-        "Dashboard chưa được tạo lần nào. Gõ /pp trong nhóm Telegram, hoặc gọi /run?token=... để bắt đầu tạo lần đầu.",
+        "Dashboard chưa được tạo lần nào. Gõ /new trong nhóm Telegram, hoặc gọi /run?token=... để bắt đầu tạo lần đầu.",
         { status: 503 }
       );
     }
@@ -71,7 +71,7 @@ export default {
     }
 
     // Manual trigger for testing — kicks off the same GitHub Actions run
-    // `/pp` in Telegram does, just without a chat to notify.
+    // `/new` in Telegram does, just without a chat to notify.
     if (url.pathname === "/run" && request.method === "GET") {
       if (!checkToken(url, env)) return new Response("Unauthorized", { status: 401 });
       try {
@@ -102,7 +102,7 @@ export default {
         return new Response("ok"); // silently ignore chats outside the allowlist
       }
 
-      if (!/^\/pp\b/i.test(message.text.trim())) {
+      if (!/^\/new\b/i.test(message.text.trim())) {
         return new Response("ok");
       }
 
@@ -128,3 +128,4 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 };
+
