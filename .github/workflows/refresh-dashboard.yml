@@ -1,0 +1,33 @@
+name: Refresh dashboard
+
+# Triggered on demand by the Cloudflare Worker (repository_dispatch — see
+# src/index.js's triggerGithubRefresh) when someone types /pp in Telegram,
+# or manually via /run?token=... . No schedule: this only runs when someone
+# actually asks for a refresh. A GitHub Actions runner has no per-run
+# subrequest cap, so the whole 14-table fetch + dashboard build happens in
+# one job, no chaining across multiple runs needed.
+on:
+  repository_dispatch:
+    types: [refresh-dashboard]
+  workflow_dispatch: {} # lets you also trigger a run manually from the GitHub UI, for testing
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: node scripts/build-and-publish.mjs
+        env:
+          LARK_APP_ID: ${{ secrets.LARK_APP_ID }}
+          LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CLIENT_CHAT_ID: ${{ github.event.client_payload.chat_id }}
+          CLIENT_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
+          CLIENT_ORIGIN: ${{ github.event.client_payload.origin }}
