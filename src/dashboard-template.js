@@ -1,9 +1,12 @@
 // Renders the full dashboard page as a single HTML string. All chart drawing
 // happens in the viewer's browser (inline <script> below) — the Worker only
 // ever serves this string from KV, it doesn't run a headless browser itself.
+import { CHANNEL_PERF_TARGETS, CS_MAP } from "./config.js";
 
 export function renderDashboard(data) {
   const dataJson = JSON.stringify(data).replace(/</g, "\\u003c");
+  const targetsJson = JSON.stringify(CHANNEL_PERF_TARGETS).replace(/</g, "\\u003c");
+  const csMapJson = JSON.stringify(CS_MAP).replace(/</g, "\\u003c");
   const updated = new Date(data.generatedAt).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
 
   return `<!DOCTYPE html>
@@ -19,7 +22,8 @@ export function renderDashboard(data) {
   <header class="topbar">
     <div class="brand">CS Team Dashboard</div>
     <div class="topbar-right">
-      <span class="updated">Cập nhật: ${updated}</span>
+      <span class="updated" id="updatedAt">Cập nhật: ${updated}</span>
+      <button id="refreshBtn" class="btn-ghost" title="Lấy dữ liệu mới nhất từ Lark, build lại dashboard (mất khoảng 1-2 phút)">🔄 Cập nhật dữ liệu mới</button>
       <button id="themeToggle" class="btn-ghost" title="Đổi giao diện sáng/tối">🌓</button>
     </div>
   </header>
@@ -45,6 +49,8 @@ export function renderDashboard(data) {
 
 <script>
 window.__DATA__ = ${dataJson};
+window.__CHANNEL_TARGETS__ = ${targetsJson};
+window.__CS_MAP__ = ${csMapJson};
 ${SCRIPT}
 </script>
 </body>
@@ -190,6 +196,90 @@ table.pivot-table .pivot-row-label { text-align: left; color: var(--text-seconda
 .status-delta-flat { color: var(--text-muted); }
 .status-note { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
 .exec-summary-note { font-size: 13px; color: var(--text-secondary); margin: -8px 0 20px; }
+
+/* ---- Channel Performance tab ---- */
+.cp-head-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.cp-view-toggle { display: inline-flex; background: var(--page); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.cp-view-btn { border: none; background: transparent; padding: 6px 14px; font-size: 13px; border-radius: 8px; cursor: pointer; color: var(--text-secondary); font-weight: 600; }
+.cp-view-btn.active { background: var(--surface); color: var(--text-primary); box-shadow: 0 1px 2px var(--border); }
+.cp-week-picker { position: relative; margin-bottom: 18px; }
+.cp-week-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px;
+  font-size: 13px; cursor: pointer; color: var(--text-primary); font-weight: 600; }
+.cp-week-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); display: none; gap: 18px; flex-wrap: wrap; }
+.cp-week-pop.open { display: flex; }
+.cp-cal-month { min-width: 210px; }
+.cp-cal-month-title { font-size: 12px; font-weight: 700; margin-bottom: 8px; color: var(--text-secondary); }
+.cp-cal-grid { display: grid; grid-template-columns: repeat(7, 26px); gap: 3px; }
+.cp-cal-dow { font-size: 9px; color: var(--text-muted); text-align: center; }
+.cp-cal-day { font-size: 11px; text-align: center; padding: 5px 0; border-radius: 6px; color: var(--text-muted); }
+.cp-cal-day.report { cursor: pointer; background: var(--page); color: var(--text-primary); font-weight: 600; }
+.cp-cal-day.report:hover { background: color-mix(in srgb, var(--series-1) 25%, var(--page)); }
+.cp-cal-day.selected { background: var(--series-1); color: #fff; }
+.cp-cal-note { font-size: 10.5px; color: var(--text-muted); margin-top: 10px; max-width: 440px; }
+.cp-row-full { margin-bottom: 16px; }
+.cp-card-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.cp-health-card { display: flex; align-items: center; gap: 20px; }
+.cp-entity-card { cursor: pointer; transition: border-color .15s; border: 1px solid var(--border); }
+.cp-entity-card:hover { border-color: var(--series-1); }
+.cp-entity-card.active { border-color: var(--series-1); box-shadow: 0 0 0 1px var(--series-1); }
+.cp-entity-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.cp-entity-name { font-size: 15px; font-weight: 700; }
+.cp-entity-sub { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+.cp-entity-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+.cp-entity-chip { font-size: 10px; background: var(--page); color: var(--text-secondary); padding: 2px 6px; border-radius: 999px; }
+.cp-avatar { width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 800; color: #fff; }
+.cp-ring-wrap { position: relative; width: 74px; height: 74px; flex-shrink: 0; }
+.cp-ring-wrap.sm { width: 56px; height: 56px; }
+.cp-ring-pct { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; }
+.cp-ring-wrap.sm .cp-ring-pct { font-size: 12px; }
+.cp-delta { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.cp-delta-up { color: var(--critical); background: color-mix(in srgb, var(--critical) 16%, transparent); }
+.cp-delta-down { color: var(--good); background: color-mix(in srgb, var(--good) 16%, transparent); }
+.cp-delta-flat { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 14%, transparent); }
+.cp-metric-bar-row { display: grid; grid-template-columns: 90px 1fr 42px; align-items: center; gap: 8px; font-size: 11px; margin-bottom: 6px; }
+.cp-metric-bar-label { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-metric-bar-track { background: var(--page); border-radius: 4px; height: 6px; overflow: hidden; }
+.cp-metric-bar-fill { height: 100%; border-radius: 4px; }
+.cp-metric-bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.cp-pass { color: var(--good); } .cp-warn { color: var(--warning); } .cp-fail { color: var(--critical); }
+.cp-ring-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.cp-ring-tile { background: var(--page); border-radius: 12px; padding: 12px; text-align: center; cursor: pointer; border: 1px solid transparent; }
+.cp-ring-tile:hover { border-color: var(--series-1); }
+.cp-ring-tile.active { border-color: var(--series-1); background: color-mix(in srgb, var(--series-1) 10%, var(--page)); }
+.cp-ring-tile-label { font-size: 11px; color: var(--text-secondary); margin-top: 8px; }
+.cp-ring-tile-sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.cp-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.cp-badge-pass { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+.cp-badge-warn { background: color-mix(in srgb, var(--warning) 20%, transparent); color: var(--warning); }
+.cp-badge-fail { background: color-mix(in srgb, var(--critical) 16%, transparent); color: var(--critical); }
+.cp-badge-na { background: var(--page); color: var(--text-muted); }
+.cp-chan-tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 5px; color: #fff; }
+.cp-detail-row td { background: var(--page); }
+.cp-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 10px; padding: 4px 0; }
+.cp-detail-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.cp-detail-tile-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.cp-detail-tile-value-row { display: flex; align-items: baseline; gap: 6px; margin-top: 2px; }
+.cp-detail-tile-value { font-size: 14px; font-weight: 700; }
+.cp-detail-tile-delta { font-size: 10px; font-weight: 700; }
+.cp-watch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.cp-watch-card { background: var(--page); border-radius: 12px; padding: 12px 14px; cursor: pointer; border: 1px solid transparent; }
+.cp-watch-card:hover { border-color: var(--critical); }
+.cp-watch-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cp-watch-count { width: 22px; height: 22px; border-radius: 50%; background: color-mix(in srgb, var(--critical) 18%, transparent);
+  color: var(--critical); font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.cp-watch-name { font-weight: 700; font-size: 13px; }
+.cp-watch-chan { font-size: 10px; color: var(--text-muted); }
+.cp-watch-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.cp-watch-chip { font-size: 10.5px; background: color-mix(in srgb, var(--critical) 10%, transparent); color: var(--critical); padding: 2px 7px; border-radius: 999px; }
+.cp-multiline-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; font-size: 11px; color: var(--text-secondary); }
+.cp-multiline-legend-item { display: flex; align-items: center; gap: 5px; }
+.cp-multiline-legend-dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.cp-detail-section { display: none; }
+.cp-detail-section.open { display: block; }
+.cp-view-panel { display: none; }
+.cp-view-panel.active { display: block; }
 `;
 
 const SCRIPT = `
@@ -211,6 +301,30 @@ const SCRIPT = `
     document.documentElement.setAttribute('data-theme', next);
     try { localStorage.setItem('sl-theme', next); } catch (e) {}
     renderAll();
+  });
+
+  // ---- refresh button — anyone with the dashboard link can trigger a
+  // rebuild (no token needed here; the actual Lark fetch + build happens in
+  // GitHub Actions via POST /refresh, see src/index.js). Disabled for a bit
+  // after clicking so one page full of people can't spam-trigger it.
+  var refreshBtn = document.getElementById('refreshBtn');
+  refreshBtn.addEventListener('click', function () {
+    refreshBtn.disabled = true;
+    var original = refreshBtn.textContent;
+    refreshBtn.textContent = '⏳ Đang yêu cầu...';
+    fetch('/refresh', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res.ok) {
+          refreshBtn.textContent = '✅ Đã yêu cầu — xong sau ~1-2 phút, tải lại trang sau đó';
+        } else {
+          refreshBtn.textContent = '❌ Lỗi: ' + (res.error || 'không rõ');
+        }
+      })
+      .catch(function () { refreshBtn.textContent = '❌ Không kết nối được'; })
+      .finally(function () {
+        setTimeout(function () { refreshBtn.disabled = false; refreshBtn.textContent = original; }, 30000);
+      });
   });
 
   // ---- tabs ----
@@ -426,6 +540,109 @@ const SCRIPT = `
 
     card.appendChild(svg);
     container.appendChild(card);
+  }
+
+  // ---- donut ring (conic-gradient) — used by the Channel Performance tab ----
+  function cpRing(pct, color, size, thickness) {
+    size = size || 74; thickness = thickness || 8;
+    var wrap = el('div', 'cp-ring-wrap' + (size < 70 ? ' sm' : ''));
+    wrap.style.width = size + 'px'; wrap.style.height = size + 'px';
+    var deg = Math.round(Math.max(0, Math.min(1, pct / 100)) * 360);
+    var track = el('div');
+    track.style.cssText = 'position:absolute;inset:0;border-radius:50%;background:conic-gradient(' + color + ' ' + deg + 'deg, var(--page) 0deg);';
+    var hole = el('div');
+    var t = Math.round(size * (thickness / 74));
+    hole.style.cssText = 'position:absolute;inset:' + t + 'px;border-radius:50%;background:var(--surface);';
+    var label = el('div', 'cp-ring-pct', Math.round(pct) + '%');
+    wrap.appendChild(track); wrap.appendChild(hole); wrap.appendChild(label);
+    return wrap;
+  }
+
+  // ---- tiny inline sparkline — skips null entries (missing report weeks) ----
+  function cpSparkline(values, w, h, color) {
+    w = w || 64; h = h || 22;
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.setAttribute('width', w); svg.setAttribute('height', h);
+    var pts0 = [];
+    values.forEach(function (v, i) { if (v !== null && v !== undefined) pts0.push([i, v]); });
+    if (pts0.length < 2) return svg;
+    var vals = pts0.map(function (p) { return p[1]; });
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    var range = max - min || 1;
+    var stepX = w / (values.length - 1 || 1);
+    var pts = pts0.map(function (p) { return [p[0] * stepX, h - 2 - ((p[1] - min) / range) * (h - 4)]; });
+    var path = document.createElementNS(svg.namespaceURI, 'path');
+    path.setAttribute('d', pts.map(function (p, i) { return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' '));
+    path.setAttribute('fill', 'none'); path.setAttribute('stroke', color || getVar('--series-1'));
+    path.setAttribute('stroke-width', '1.6'); path.setAttribute('stroke-linecap', 'round'); path.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(path);
+    var last = pts[pts.length - 1];
+    var dot = document.createElementNS(svg.namespaceURI, 'circle');
+    dot.setAttribute('cx', last[0]); dot.setAttribute('cy', last[1]); dot.setAttribute('r', '2'); dot.setAttribute('fill', color || getVar('--series-1'));
+    svg.appendChild(dot);
+    return svg;
+  }
+
+  // ---- multi-series line chart — used to compare all supporters at once ----
+  function cpMultiLineChart(container, seriesList, weekLabels, selectedIdx) {
+    var width = 900, height = 220, padL = 30, padR = 10, padT = 10, padB = 22;
+    var innerW = width - padL - padR, innerH = height - padT - padB;
+    var allVals = [];
+    seriesList.forEach(function (s) { s.data.forEach(function (v) { if (v !== null && v !== undefined) allVals.push(v); }); });
+    var maxV = Math.max.apply(null, allVals.concat([10]));
+    var stepX = innerW / Math.max(1, weekLabels.length - 1);
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+    svg.setAttribute('width', '100%'); svg.style.overflow = 'visible';
+    for (var g = 0; g <= 4; g++) {
+      var y = padT + innerH - (g / 4) * innerH;
+      var line = document.createElementNS(svg.namespaceURI, 'line');
+      line.setAttribute('x1', padL); line.setAttribute('x2', width - padR); line.setAttribute('y1', y); line.setAttribute('y2', y);
+      line.setAttribute('stroke', getVar('--grid')); line.setAttribute('stroke-width', '1');
+      svg.appendChild(line);
+      var lbl = document.createElementNS(svg.namespaceURI, 'text');
+      lbl.setAttribute('x', 4); lbl.setAttribute('y', y + 3); lbl.setAttribute('font-size', '9'); lbl.setAttribute('fill', getVar('--text-muted'));
+      lbl.textContent = Math.round((g / 4) * maxV) + '%';
+      svg.appendChild(lbl);
+    }
+    if (selectedIdx != null) {
+      var selX = padL + selectedIdx * stepX;
+      var selLine = document.createElementNS(svg.namespaceURI, 'line');
+      selLine.setAttribute('x1', selX); selLine.setAttribute('x2', selX); selLine.setAttribute('y1', padT); selLine.setAttribute('y2', padT + innerH);
+      selLine.setAttribute('stroke', getVar('--text-muted')); selLine.setAttribute('stroke-width', '1'); selLine.setAttribute('stroke-dasharray', '3,3');
+      svg.appendChild(selLine);
+    }
+    weekLabels.forEach(function (lb, i) {
+      var t = document.createElementNS(svg.namespaceURI, 'text');
+      t.setAttribute('x', padL + i * stepX); t.setAttribute('y', height - 4); t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('font-size', '9'); t.setAttribute('fill', getVar('--text-muted'));
+      t.textContent = lb; svg.appendChild(t);
+    });
+    seriesList.forEach(function (s) {
+      var pts = [];
+      s.data.forEach(function (v, i) { if (v !== null && v !== undefined) pts.push([padL + i * stepX, padT + innerH - (v / maxV) * innerH, i]); });
+      if (pts.length < 2) return;
+      var path = document.createElementNS(svg.namespaceURI, 'path');
+      path.setAttribute('d', pts.map(function (p, i) { return (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' '));
+      path.setAttribute('fill', 'none'); path.setAttribute('stroke', s.color); path.setAttribute('stroke-width', '2');
+      svg.appendChild(path);
+      pts.forEach(function (p) {
+        var dot = document.createElementNS(svg.namespaceURI, 'circle');
+        dot.setAttribute('cx', p[0]); dot.setAttribute('cy', p[1]); dot.setAttribute('r', p[2] === selectedIdx ? 3.5 : 2);
+        dot.setAttribute('fill', s.color);
+        svg.appendChild(dot);
+      });
+    });
+    container.appendChild(svg);
+    var legend = el('div', 'cp-multiline-legend');
+    seriesList.forEach(function (s) {
+      var item = el('span', 'cp-multiline-legend-item');
+      var dot = el('span', 'cp-multiline-legend-dot'); dot.style.background = s.color;
+      item.appendChild(dot); item.appendChild(document.createTextNode(s.label));
+      legend.appendChild(item);
+    });
+    container.appendChild(legend);
   }
 
   function fmtPct(v) { return v === null || v === undefined ? 'N/A' : (v * 100).toFixed(1) + '%'; }
@@ -835,36 +1052,626 @@ const SCRIPT = `
   }
 
   // ---- Tab 2: Channel Performance ----
+  // Pass/fail is evaluated entirely client-side against window.__CHANNEL_TARGETS__
+  // (mirrors config.js's CHANNEL_PERF_TARGETS) so the same target table drives
+  // both the server-rendered supplier config and this interactive tab.
+  var CP_TARGETS = window.__CHANNEL_TARGETS__ || {};
+  var CP_CS_MAP = window.__CS_MAP__ || {};
+  var CP_CHANNEL_ORDER = ['ETSY', 'AMZ', 'TIKTOK', 'WEBSITE'];
+  var CP_COLOR = { ETSY: getVar('--series-2'), AMZ: getVar('--series-4'), TIKTOK: getVar('--series-1'), WEBSITE: getVar('--series-3') };
+
+  function cpPassMetric(m, v) {
+    if (v === null || v === undefined) return null;
+    if (m.direction === 'bool') return !!v;
+    if (m.direction === 'higher') return v >= m.threshold;
+    return v <= m.threshold;
+  }
+  function cpStatusMetric(m, v) {
+    var p = cpPassMetric(m, v);
+    if (p === null) return 'na';
+    if (!p) return 'fail';
+    if (m.warnMargin == null) return 'pass';
+    var dist = m.direction === 'higher' ? v - m.threshold : m.threshold - v;
+    return dist <= m.warnMargin ? 'warn' : 'pass';
+  }
+  function cpFmtValue(m, v) {
+    if (v === null || v === undefined) return '—';
+    if (m.direction === 'bool') return v ? 'Đạt' : 'Không đạt';
+    if (m.unit === '%') return v.toFixed(2) + '%';
+    if (m.unit === '★') return v.toFixed(2) + '★';
+    if (m.unit === 'h') return v.toFixed(1) + 'h';
+    return Number.isInteger(m.threshold) ? String(Math.round(v)) : v.toFixed(1);
+  }
+  function cpBadgeClass(s) { return s === 'pass' ? 'cp-badge-pass' : s === 'warn' ? 'cp-badge-warn' : s === 'fail' ? 'cp-badge-fail' : 'cp-badge-na'; }
+  function cpValAt(acc, key, idx) { var arr = acc.history[key]; return arr ? arr[idx] : null; }
+  function cpAccountPassCount(metrics, acc, idx) {
+    return metrics.filter(function (m) { var s = cpStatusMetric(m, cpValAt(acc, m.key, idx)); return s === 'pass' || s === 'warn'; }).length;
+  }
+  function cpAccountFullyPasses(metrics, acc, idx) { return cpAccountPassCount(metrics, acc, idx) === metrics.length; }
+
   function renderChannelPerformance() {
     var c = document.getElementById('panel-channelPerformance');
-    var d = DATA.channelPerformance;
-    renderKpis(c, d.kpis);
+    var cd = DATA.channelPerformance || { weeks: [], channels: {} };
+    var WEEKS = cd.weeks || [];
+    if (!WEEKS.length) {
+      c.appendChild(el('div', 'empty-note', 'Chưa có dữ liệu Report Performance nào được ghi nhận.'));
+      return;
+    }
+    var selectedWeek = WEEKS.length - 1;
 
-    if (d.alerts.length) {
-      var alertCard = el('div', 'card');
-      alertCard.appendChild(el('h3', null, 'Cảnh báo vượt ngưỡng'));
-      d.alerts.forEach(function (a) {
-        var row = el('div', 'bar-list-row');
-        row.style.gridTemplateColumns = '140px 1fr 100px';
-        row.appendChild(el('div', 'bar-list-label', a.account));
-        row.appendChild(el('div', null, a.metric + ' ' + (a.direction === 'below' ? '<' : '>') + ' ngưỡng'));
-        var badge = el('span', 'badge badge-critical', (a.value * 100).toFixed(2) + '%');
-        row.appendChild(badge);
-        alertCard.appendChild(row);
+    var CHANNELS = {};
+    CP_CHANNEL_ORDER.forEach(function (key) { CHANNELS[key] = { metrics: CP_TARGETS[key] || [], accounts: (cd.channels[key] || {}).accounts || [] }; });
+
+    var ALL_ENTRIES = [];
+    CP_CHANNEL_ORDER.forEach(function (key) {
+      CHANNELS[key].accounts.forEach(function (a) { ALL_ENTRIES.push({ channel: key, account: a.account, acc: a, supporter: CP_CS_MAP[a.account] || 'Chưa gán' }); });
+    });
+    var SUPPORTERS = Array.from(new Set(ALL_ENTRIES.map(function (e) { return e.supporter; }))).sort();
+    var SERIES_COLORS = [getVar('--series-1'), getVar('--series-2'), getVar('--series-3'), getVar('--series-4'), CP_COLOR.TIKTOK];
+
+    function cpInitials(name) { return name.replace(/\(.*?\)/g, '').trim().split(/\s+/).map(function (w) { return w[0]; }).slice(0, 2).join('').toUpperCase(); }
+    var AVATAR_COLORS = [getVar('--series-1'), getVar('--series-2'), getVar('--series-3'), getVar('--series-4'), '#8a5fd6'];
+    function cpAvatarColor(name) { var i = 0; for (var ci = 0; ci < name.length; ci++) i += name.charCodeAt(ci); return AVATAR_COLORS[i % AVATAR_COLORS.length]; }
+
+    function channelPassSeries(ch) {
+      return WEEKS.map(function (w, idx) {
+        var accs = ch.accounts.filter(function (a) { return cpValAt(a, ch.metrics[0] ? ch.metrics[0].key : '', idx) !== null || ch.metrics.some(function (m) { return cpValAt(a, m.key, idx) !== null; }); });
+        var n = accs.filter(function (a) { return cpAccountFullyPasses(ch.metrics, a, idx); }).length;
+        return accs.length ? (n / accs.length) * 100 : null;
       });
-      c.appendChild(alertCard);
+    }
+    function channelPassRate(ch, idx) {
+      var accs = ch.accounts.filter(function (a) { return ch.metrics.some(function (m) { return cpValAt(a, m.key, idx) !== null; }); });
+      var n = accs.filter(function (a) { return cpAccountFullyPasses(ch.metrics, a, idx); }).length;
+      return { n: n, total: accs.length, pct: accs.length ? (n / accs.length) * 100 : 0 };
+    }
+    function supporterEntries(name) { return ALL_ENTRIES.filter(function (e) { return e.supporter === name; }); }
+    function supporterPassSeries(name) {
+      var entries = supporterEntries(name);
+      return WEEKS.map(function (w, idx) {
+        var withData = entries.filter(function (e) { return CHANNELS[e.channel].metrics.some(function (m) { return cpValAt(e.acc, m.key, idx) !== null; }); });
+        var n = withData.filter(function (e) { return cpAccountFullyPasses(CHANNELS[e.channel].metrics, e.acc, idx); }).length;
+        return withData.length ? (n / withData.length) * 100 : null;
+      });
+    }
+    function supporterPassRate(name, idx) {
+      var entries = supporterEntries(name).filter(function (e) { return CHANNELS[e.channel].metrics.some(function (m) { return cpValAt(e.acc, m.key, idx) !== null; }); });
+      var n = entries.filter(function (e) { return cpAccountFullyPasses(CHANNELS[e.channel].metrics, e.acc, idx); }).length;
+      return { n: n, total: entries.length, pct: entries.length ? (n / entries.length) * 100 : 0 };
+    }
+    function cpFmtDelta(curr, prev, biggerIsWorse) {
+      if (curr == null) return el('span', 'cp-delta cp-delta-flat', '— n/a');
+      if (prev == null) return el('span', 'cp-delta cp-delta-flat', '— tuần đầu');
+      var d = curr - prev;
+      if (Math.abs(d) < 0.05) return el('span', 'cp-delta cp-delta-flat', '→ 0');
+      var up = d > 0;
+      var worse = biggerIsWorse ? up : !up;
+      return el('span', 'cp-delta ' + (worse ? 'cp-delta-up' : 'cp-delta-down'), (up ? '▲ ' : '▼ ') + Math.abs(d).toFixed(1));
     }
 
-    var grid = el('div', 'grid-3');
-    d.metricList.forEach(function (metric) {
-      var points = d.monthlyByMetric[metric];
-      renderLineChart(grid, metric, points);
-    });
-    c.appendChild(grid);
+    // ---- layout scaffold ----
+    var headRow = el('div', 'cp-head-row');
+    headRow.appendChild(el('div'));
+    var viewToggle = el('div', 'cp-view-toggle');
+    var btnChannel = el('button', 'cp-view-btn active', 'Theo kênh');
+    var btnSupporter = el('button', 'cp-view-btn', 'Theo Supporter');
+    viewToggle.appendChild(btnChannel); viewToggle.appendChild(btnSupporter);
+    headRow.appendChild(viewToggle);
+    c.appendChild(headRow);
 
-    var cols = [{ label: 'Account', key: 'account' }, { label: 'Channel', key: 'channel' }]
-      .concat(d.metricList.map(function (m) { return { label: m, render: function (r) { return fmtPct(r.metrics[m]); } }; }));
-    renderTable(c, 'Snapshot mới nhất theo account', cols, d.accountTable);
+    var weekPicker = el('div', 'cp-week-picker');
+    var pickerBtn = el('button', 'cp-week-btn', '📅 Tuần báo cáo: ' + WEEKS[selectedWeek].label + (selectedWeek === WEEKS.length - 1 ? ' (mới nhất)' : ''));
+    var pop = el('div', 'cp-week-pop');
+    weekPicker.appendChild(pickerBtn); weekPicker.appendChild(pop);
+    pickerBtn.addEventListener('click', function (ev) { ev.stopPropagation(); pop.classList.toggle('open'); });
+    document.addEventListener('click', function (ev) { if (!weekPicker.contains(ev.target)) pop.classList.remove('open'); });
+    c.appendChild(weekPicker);
+
+    var healthRow = el('div', 'cp-row-full'); c.appendChild(healthRow);
+    var topRow = el('div', 'cp-card-row'); c.appendChild(topRow);
+
+    // Issue rate theo KÊNH (không phải theo account/supporter — xem ghi chú
+    // trong analyze/channelWorkload.js lý do chưa xuống được cấp account).
+    (function renderChannelWorkload() {
+      var wl = DATA.channelWorkload;
+      if (!wl) return;
+      var card = el('div', 'card'); card.style.marginBottom = '16px';
+      card.appendChild(el('div', 'section-title', 'Issue rate theo kênh (Cancel/Refund + PayPal Dispute ÷ số đơn xử lý)'));
+      var note = el('div', 'empty-note', 'Chuẩn hoá theo khối lượng đơn thay vì chỉ đếm case thô — issue rate thấp trên khối lượng lớn phản ánh vận hành tốt hơn hẳn issue rate thấp trên khối lượng nhỏ. WEBSITE chưa có "đơn" (sẽ dùng số ticket Zendesk khi nối xong).');
+      note.style.textAlign = 'left'; note.style.padding = '0 0 10px';
+      card.appendChild(note);
+      var table = el('table', 'data-table');
+      var thead = el('thead'); var hr = el('tr');
+      ['Kênh', 'Số đơn xử lý', 'Số issue', 'Issue rate'].forEach(function (h) { hr.appendChild(el('th', null, h)); });
+      thead.appendChild(hr); table.appendChild(thead);
+      var tbody = el('tbody');
+      CP_CHANNEL_ORDER.forEach(function (key) {
+        var w = wl[key] || { volume: 0, issues: 0, issueRate: null };
+        var tr = el('tr');
+        var chanTd = el('td'); var tag = el('span', 'cp-chan-tag', key); tag.style.background = CP_COLOR[key]; chanTd.appendChild(tag);
+        tr.appendChild(chanTd);
+        tr.appendChild(el('td', null, w.volume ? w.volume.toLocaleString('vi-VN') : '—'));
+        tr.appendChild(el('td', null, String(w.issues)));
+        if (w.issueRate == null) {
+          tr.appendChild(el('td', null, '—'));
+        } else {
+          var cls = w.issueRate <= 1.5 ? 'cp-badge-pass' : w.issueRate <= 3 ? 'cp-badge-warn' : 'cp-badge-fail';
+          tr.appendChild(el('td', null, '<span class="cp-badge ' + cls + '">' + w.issueRate.toFixed(2) + '%</span>'));
+        }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      card.appendChild(table);
+      c.appendChild(card);
+    })();
+
+    var supporterCompareCard = el('div', 'card'); supporterCompareCard.style.marginBottom = '16px'; c.appendChild(supporterCompareCard);
+    var reviewRecoveryCard = el('div', 'card'); reviewRecoveryCard.style.marginBottom = '16px'; c.appendChild(reviewRecoveryCard);
+    var watchCard = el('div', 'card'); watchCard.style.marginBottom = '16px';
+    var watchTitle = el('div', 'section-title', 'Account cần chú ý');
+    var watchGrid = el('div', 'cp-watch-grid');
+    watchCard.appendChild(watchTitle); watchCard.appendChild(watchGrid);
+    c.appendChild(watchCard);
+    var channelPanel = el('div'); var supporterPanel = el('div');
+    c.appendChild(channelPanel); c.appendChild(supporterPanel);
+
+    function buildCalendarPopover() {
+      pop.innerHTML = '';
+      var monthMap = {};
+      WEEKS.forEach(function (w) {
+        var dt = new Date(w.key);
+        var mk = dt.getFullYear() + '-' + dt.getMonth();
+        if (!monthMap[mk]) monthMap[mk] = { first: new Date(dt.getFullYear(), dt.getMonth(), 1), weeks: [] };
+        monthMap[mk].weeks.push({ idx: WEEKS.indexOf(w), date: dt });
+      });
+      var DOW = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+      Object.keys(monthMap).sort().forEach(function (mk) {
+        var info = monthMap[mk];
+        var monthEl = el('div', 'cp-cal-month');
+        monthEl.appendChild(el('div', 'cp-cal-month-title', 'Tháng ' + (info.first.getMonth() + 1) + '/' + info.first.getFullYear()));
+        var grid = el('div', 'cp-cal-grid');
+        DOW.forEach(function (d) { grid.appendChild(el('div', 'cp-cal-dow', d)); });
+        var startOffset = info.first.getDay();
+        var daysInMonth = new Date(info.first.getFullYear(), info.first.getMonth() + 1, 0).getDate();
+        for (var i = 0; i < startOffset; i++) grid.appendChild(el('div', 'cp-cal-day', ''));
+        for (var d2 = 1; d2 <= daysInMonth; d2++) {
+          var matchWeek = info.weeks.find(function (w) { return w.date.getDate() === d2; });
+          var cell = el('div', 'cp-cal-day' + (matchWeek ? ' report' : '') + (matchWeek && matchWeek.idx === selectedWeek ? ' selected' : ''), String(d2));
+          if (matchWeek) {
+            cell.addEventListener('click', (function (mw) {
+              return function () {
+                selectedWeek = mw.idx;
+                pop.classList.remove('open');
+                pickerBtn.textContent = '📅 Tuần báo cáo: ' + WEEKS[selectedWeek].label + (selectedWeek === WEEKS.length - 1 ? ' (mới nhất)' : '');
+                buildCalendarPopover();
+                cpRerenderAll();
+              };
+            })(matchWeek));
+          }
+          grid.appendChild(cell);
+        }
+        monthEl.appendChild(grid);
+        pop.appendChild(monthEl);
+      });
+      pop.appendChild(el('div', 'cp-cal-note', 'Chỉ ngày tô đậm mới có báo cáo (nhập tay Thứ 4-5 hàng tuần) — ngày khác không bấm được.'));
+    }
+
+    var currentView = 'channel';
+    var activeEntity = { channel: null, supporter: null };
+    var channelCardEls = {}, supporterCardEls = {};
+
+    function renderHealthRow() {
+      healthRow.innerHTML = '';
+      var totalAccounts = ALL_ENTRIES.length;
+      var totalPass = ALL_ENTRIES.filter(function (e) { return cpAccountFullyPasses(CHANNELS[e.channel].metrics, e.acc, selectedWeek); }).length;
+      var overallPct = totalAccounts ? (totalPass / totalAccounts) * 100 : 0;
+      var prevPct = selectedWeek > 0
+        ? (function () { var p = ALL_ENTRIES.filter(function (e) { return cpAccountFullyPasses(CHANNELS[e.channel].metrics, e.acc, selectedWeek - 1); }).length; return totalAccounts ? (p / totalAccounts) * 100 : 0; })()
+        : null;
+      var healthCard = el('div', 'card cp-health-card');
+      healthCard.appendChild(cpRing(overallPct, getVar('--series-1'), 84, 9));
+      var healthText = el('div');
+      healthText.appendChild(el('div', 'section-title', 'Overall health — tuần ' + WEEKS[selectedWeek].label));
+      healthText.appendChild(el('div', null, '<b style="font-size:22px;">' + totalPass + '/' + totalAccounts + '</b> <span style="font-size:12px;color:var(--text-muted);">account đạt chuẩn toàn bộ chỉ số</span>'));
+      var deltaWrap = el('div'); deltaWrap.style.marginTop = '4px';
+      deltaWrap.appendChild(cpFmtDelta(overallPct, prevPct, false));
+      healthText.appendChild(deltaWrap);
+      healthCard.appendChild(healthText);
+      healthRow.appendChild(healthCard);
+    }
+
+    function renderTopRow() {
+      topRow.innerHTML = '';
+      if (currentView === 'channel') {
+        CP_CHANNEL_ORDER.forEach(function (key) {
+          var ch = CHANNELS[key];
+          var r = channelPassRate(ch, selectedWeek);
+          var rPrev = selectedWeek > 0 ? channelPassRate(ch, selectedWeek - 1) : null;
+          var card = el('div', 'card cp-entity-card');
+          var head = el('div', 'cp-entity-head');
+          head.appendChild(cpRing(r.pct, CP_COLOR[key], 52, 7));
+          var nameWrap = el('div');
+          nameWrap.appendChild(el('div', 'cp-entity-name', key));
+          nameWrap.appendChild(el('div', 'cp-entity-sub', r.n + '/' + r.total + ' account đạt'));
+          nameWrap.appendChild(cpFmtDelta(r.pct, rPrev ? rPrev.pct : null, false));
+          head.appendChild(nameWrap);
+          card.appendChild(head);
+          card.appendChild(cpSparkline(channelPassSeries(ch), 180, 26, CP_COLOR[key]));
+          ch.metrics.slice(0, 5).forEach(function (m) {
+            var withData = ch.accounts.filter(function (a) { return cpValAt(a, m.key, selectedWeek) !== null; });
+            var passN = withData.filter(function (a) { var s = cpStatusMetric(m, cpValAt(a, m.key, selectedWeek)); return s === 'pass' || s === 'warn'; }).length;
+            var pct = withData.length ? (passN / withData.length) * 100 : 0;
+            var row = el('div', 'cp-metric-bar-row');
+            row.appendChild(el('div', 'cp-metric-bar-label', m.label));
+            var track = el('div', 'cp-metric-bar-track');
+            var fill = el('div', 'cp-metric-bar-fill');
+            fill.style.width = pct + '%';
+            fill.style.background = pct >= 80 ? getVar('--good') : pct >= 50 ? getVar('--warning') : getVar('--critical');
+            track.appendChild(fill);
+            row.appendChild(track);
+            row.appendChild(el('div', 'cp-metric-bar-value', passN + '/' + withData.length));
+            card.appendChild(row);
+          });
+          card.addEventListener('click', function () { openChannel(key); });
+          channelCardEls[key] = card;
+          topRow.appendChild(card);
+        });
+      } else {
+        SUPPORTERS.slice().sort(function (a, b) { return supporterPassRate(a, selectedWeek).pct - supporterPassRate(b, selectedWeek).pct; }).forEach(function (name) {
+          var r = supporterPassRate(name, selectedWeek);
+          var rPrev = selectedWeek > 0 ? supporterPassRate(name, selectedWeek - 1) : null;
+          var entries = supporterEntries(name);
+          var byChan = {};
+          entries.forEach(function (e) { byChan[e.channel] = (byChan[e.channel] || 0) + 1; });
+          var card = el('div', 'card cp-entity-card');
+          var head = el('div', 'cp-entity-head');
+          var av = el('div', 'cp-avatar', cpInitials(name));
+          av.style.background = cpAvatarColor(name);
+          head.appendChild(av);
+          var nameWrap = el('div');
+          nameWrap.appendChild(el('div', 'cp-entity-name', name));
+          nameWrap.appendChild(el('div', 'cp-entity-sub', r.n + '/' + r.total + ' account đạt'));
+          head.appendChild(nameWrap);
+          head.appendChild(cpRing(r.pct, getVar('--series-1'), 52, 7));
+          card.appendChild(head);
+          var deltaRow = el('div'); deltaRow.appendChild(cpFmtDelta(r.pct, rPrev ? rPrev.pct : null, false));
+          card.appendChild(deltaRow);
+          card.appendChild(cpSparkline(supporterPassSeries(name), 180, 26, getVar('--series-1')));
+          var chips = el('div', 'cp-entity-chips');
+          Object.keys(byChan).forEach(function (ck) { chips.appendChild(el('span', 'cp-entity-chip', ck + ' ' + byChan[ck])); });
+          card.appendChild(chips);
+          card.addEventListener('click', function () { openSupporter(name); });
+          supporterCardEls[name] = card;
+          topRow.appendChild(card);
+        });
+      }
+    }
+
+    function renderSupporterCompare() {
+      supporterCompareCard.innerHTML = '';
+      if (currentView !== 'supporter') { supporterCompareCard.style.display = 'none'; return; }
+      supporterCompareCard.style.display = 'block';
+      supporterCompareCard.appendChild(el('div', 'section-title', 'So sánh xu hướng % đạt chuẩn giữa các Supporter'));
+      var wrap = el('div');
+      var seriesList = SUPPORTERS.map(function (name, i) { return { label: name, data: supporterPassSeries(name), color: SERIES_COLORS[i % SERIES_COLORS.length] }; });
+      cpMultiLineChart(wrap, seriesList, WEEKS.map(function (w) { return w.label; }), selectedWeek);
+      supporterCompareCard.appendChild(wrap);
+    }
+
+    function renderReviewRecovery() {
+      reviewRecoveryCard.innerHTML = '';
+      if (currentView !== 'supporter') { reviewRecoveryCard.style.display = 'none'; return; }
+      reviewRecoveryCard.style.display = 'block';
+      reviewRecoveryCard.appendChild(el('div', 'section-title', 'Review recovery theo Supporter (review 1-2★ đã liên hệ khách + xử lý)'));
+      var note = el('div', 'empty-note', 'Chỉ tính Etsy + TikTok (2 nền tảng cho phép liên hệ khách nâng lại sao qua "Resolve"). AMZ chỉ đếm review xấu, không có bước xử lý (chính sách Amazon không cho phép).');
+      note.style.textAlign = 'left'; note.style.padding = '0 0 10px';
+      reviewRecoveryCard.appendChild(note);
+      var rr = DATA.reviewRecovery || {};
+      var rows = SUPPORTERS.map(function (name) { return { name: name, r: rr[name] || { negTotal: 0, negResolved: 0, recoveryPct: null, amzNegTotal: 0 } }; })
+        .filter(function (x) { return x.r.negTotal > 0 || x.r.amzNegTotal > 0; })
+        .sort(function (a, b) { var ra = a.r.recoveryPct == null ? -1 : a.r.recoveryPct; var rb = b.r.recoveryPct == null ? -1 : b.r.recoveryPct; return rb - ra; });
+      if (!rows.length) { reviewRecoveryCard.appendChild(el('div', 'empty-note', 'Chưa có review xấu nào được ghi nhận.')); return; }
+      var table = el('table', 'data-table');
+      var thead = el('thead'); var hr = el('tr');
+      ['Supporter', 'Review xấu (Etsy+TikTok)', 'Đã xử lý', 'Recovery rate', 'Review xấu AMZ (không xử lý được)'].forEach(function (h) { hr.appendChild(el('th', null, h)); });
+      thead.appendChild(hr); table.appendChild(thead);
+      var tbody = el('tbody');
+      rows.forEach(function (x) {
+        var tr = el('tr');
+        tr.appendChild(el('td', null, '<b>' + x.name + '</b>'));
+        tr.appendChild(el('td', null, String(x.r.negTotal)));
+        tr.appendChild(el('td', null, String(x.r.negResolved)));
+        if (x.r.recoveryPct == null) {
+          tr.appendChild(el('td', null, '—'));
+        } else {
+          var cls = x.r.recoveryPct >= 60 ? 'cp-badge-pass' : x.r.recoveryPct >= 30 ? 'cp-badge-warn' : 'cp-badge-fail';
+          tr.appendChild(el('td', null, '<span class="cp-badge ' + cls + '">' + x.r.recoveryPct.toFixed(0) + '%</span>'));
+        }
+        tr.appendChild(el('td', null, String(x.r.amzNegTotal)));
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      reviewRecoveryCard.appendChild(table);
+    }
+
+    function renderWatch() {
+      watchGrid.innerHTML = '';
+      var watchItems = [];
+      ALL_ENTRIES.forEach(function (e) {
+        var ch = CHANNELS[e.channel];
+        var failing = ch.metrics.filter(function (m) { return cpStatusMetric(m, cpValAt(e.acc, m.key, selectedWeek)) === 'fail'; });
+        if (failing.length >= 2) watchItems.push({ channel: e.channel, account: e.account, supporter: e.supporter, failing: failing, acc: e.acc });
+      });
+      watchTitle.textContent = 'Account cần chú ý — fail ≥2 chỉ số, tuần ' + WEEKS[selectedWeek].label + ' (' + watchItems.length + ' account)';
+      if (!watchItems.length) watchGrid.appendChild(el('div', 'empty-note', 'Không có account nào fail từ 2 chỉ số trở lên tuần này.'));
+      watchItems.forEach(function (w) {
+        var card = el('div', 'cp-watch-card');
+        var head = el('div', 'cp-watch-head');
+        head.appendChild(el('div', 'cp-watch-count', String(w.failing.length)));
+        var nameWrap = el('div');
+        nameWrap.appendChild(el('div', 'cp-watch-name', w.account));
+        nameWrap.appendChild(el('div', 'cp-watch-chan', w.channel + ' · ' + w.supporter));
+        head.appendChild(nameWrap);
+        card.appendChild(head);
+        var chips = el('div', 'cp-watch-chips');
+        w.failing.forEach(function (m) { chips.appendChild(el('span', 'cp-watch-chip', m.label + ' ' + cpFmtValue(m, cpValAt(w.acc, m.key, selectedWeek)))); });
+        card.appendChild(chips);
+        card.addEventListener('click', function () { switchView('channel'); openChannel(w.channel, w.account); });
+        watchGrid.appendChild(card);
+      });
+    }
+
+    function buildDetailRow(ch, a, colSpan) {
+      var detailTr = el('tr', 'cp-detail-row');
+      var detailTd = el('td');
+      detailTd.colSpan = colSpan;
+      var grid = el('div', 'cp-detail-grid');
+      ch.metrics.forEach(function (m) {
+        var v = cpValAt(a, m.key, selectedWeek);
+        var prevV = selectedWeek > 0 ? cpValAt(a, m.key, selectedWeek - 1) : null;
+        var status = cpStatusMetric(m, v);
+        var tile = el('div', 'cp-detail-tile');
+        tile.appendChild(el('div', 'cp-detail-tile-label', m.label + ' · target ' + (m.direction === 'bool' ? 'Đạt' : (m.direction === 'higher' ? '≥ ' : '≤ ') + m.threshold + m.unit)));
+        var row = el('div', 'cp-detail-tile-value-row');
+        row.appendChild(el('span', 'cp-detail-tile-value cp-' + status, cpFmtValue(m, v)));
+        if (v != null && prevV != null && m.direction !== 'bool') {
+          var d = v - prevV;
+          var worse = m.direction === 'higher' ? d < 0 : d > 0;
+          if (Math.abs(d) >= (m.warnMargin ? m.warnMargin * 0.2 : 0.02)) {
+            row.appendChild(el('span', 'cp-detail-tile-delta cp-' + (worse ? 'fail' : 'pass'), (d > 0 ? '▲' : '▼') + Math.abs(d).toFixed(2)));
+          }
+        }
+        tile.appendChild(row);
+        if (m.direction !== 'bool') tile.appendChild(cpSparkline(a.history[m.key], 80, 22, status === 'fail' ? getVar('--critical') : status === 'warn' ? getVar('--warning') : getVar('--good')));
+        grid.appendChild(tile);
+      });
+      detailTd.appendChild(grid);
+      detailTr.appendChild(detailTd);
+      return detailTr;
+    }
+
+    var channelSections = {};
+    CP_CHANNEL_ORDER.forEach(function (key) {
+      var ch = CHANNELS[key];
+      var section = el('div', 'card cp-detail-section');
+      var titleEl = el('div', 'section-title', key + ' — chi tiết theo account');
+      section.appendChild(titleEl);
+      var ringRowWrap = el('div'); section.appendChild(ringRowWrap);
+      var activeMetricFilter = null;
+      var tableWrap = el('div'); section.appendChild(tableWrap);
+      var sortState = { key: 'account', dir: 'asc' };
+      var openAccount = null;
+
+      function drawRings() {
+        ringRowWrap.innerHTML = '';
+        var ringRow = el('div', 'cp-ring-row');
+        ch.metrics.forEach(function (m) {
+          var withData = ch.accounts.filter(function (a) { return cpValAt(a, m.key, selectedWeek) !== null; });
+          var passN = withData.filter(function (a) { var s = cpStatusMetric(m, cpValAt(a, m.key, selectedWeek)); return s === 'pass' || s === 'warn'; }).length;
+          var pct = withData.length ? (passN / withData.length) * 100 : 0;
+          var tile = el('div', 'cp-ring-tile' + (activeMetricFilter === m.key ? ' active' : ''));
+          tile.appendChild(cpRing(pct, pct >= 80 ? getVar('--good') : pct >= 50 ? getVar('--warning') : getVar('--critical'), 56, 7));
+          tile.appendChild(el('div', 'cp-ring-tile-label', m.label));
+          tile.appendChild(el('div', 'cp-ring-tile-sub', 'target ' + (m.direction === 'bool' ? 'Đạt' : (m.direction === 'higher' ? '≥ ' : '≤ ') + m.threshold + m.unit)));
+          tile.addEventListener('click', function () { activeMetricFilter = activeMetricFilter === m.key ? null : m.key; drawRings(); drawTable(); });
+          ringRow.appendChild(tile);
+        });
+        ringRowWrap.appendChild(ringRow);
+      }
+
+      function drawTable() {
+        titleEl.textContent = key + ' — chi tiết theo account, tuần ' + WEEKS[selectedWeek].label;
+        tableWrap.innerHTML = '';
+        var rows = ch.accounts.filter(function (a) {
+          if (!activeMetricFilter) return true;
+          var m = ch.metrics.find(function (mm) { return mm.key === activeMetricFilter; });
+          return cpStatusMetric(m, cpValAt(a, activeMetricFilter, selectedWeek)) === 'fail';
+        }).slice().sort(function (a, b) {
+          var va = sortState.key === 'account' ? a.account : cpValAt(a, sortState.key, selectedWeek);
+          var vb = sortState.key === 'account' ? b.account : cpValAt(b, sortState.key, selectedWeek);
+          if (va === null) return 1; if (vb === null) return -1;
+          if (typeof va === 'string') return sortState.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+          return sortState.dir === 'asc' ? va - vb : vb - va;
+        });
+        if (activeMetricFilter) {
+          var mLabel = ch.metrics.find(function (mm) { return mm.key === activeMetricFilter; }).label;
+          var note = el('div', 'empty-note', 'Đang lọc: account fail "' + mLabel + '" (' + rows.length + ') — bấm lại vòng tròn để bỏ lọc');
+          note.style.padding = '0 0 8px'; note.style.textAlign = 'left'; note.style.color = getVar('--critical');
+          tableWrap.appendChild(note);
+        }
+        var table = el('table', 'data-table');
+        var thead = el('thead'); var headRow = el('tr');
+        headRow.appendChild(mkTh('Account', 'account'));
+        ch.metrics.forEach(function (m) { headRow.appendChild(mkTh(m.label, m.key)); });
+        headRow.appendChild(el('th', null, 'Xu hướng'));
+        thead.appendChild(headRow); table.appendChild(thead);
+        var tbody = el('tbody');
+        if (!rows.length) {
+          var emptyTr = el('tr'); var emptyTd = el('td', 'empty-note', 'Không có account nào'); emptyTd.colSpan = ch.metrics.length + 2; emptyTr.appendChild(emptyTd); tbody.appendChild(emptyTr);
+        }
+        rows.forEach(function (a) {
+          var tr = el('tr');
+          if (openAccount === a.account) tr.classList.add('row-active');
+          tr.appendChild(el('td', null, '<b>' + a.account + '</b>'));
+          ch.metrics.forEach(function (m) {
+            var v = cpValAt(a, m.key, selectedWeek);
+            var status = cpStatusMetric(m, v);
+            tr.appendChild(el('td', null, '<span class="cp-badge ' + cpBadgeClass(status) + '">' + cpFmtValue(m, v) + '</span>'));
+          });
+          var sparkTd = el('td');
+          var passSeries = WEEKS.map(function (w, idx) { return cpAccountPassCount(ch.metrics, a, idx); });
+          sparkTd.appendChild(cpSparkline(passSeries, 60, 20, getVar('--series-1')));
+          tr.appendChild(sparkTd);
+          tr.addEventListener('click', function () { openAccount = openAccount === a.account ? null : a.account; drawTable(); });
+          tbody.appendChild(tr);
+          if (openAccount === a.account) tbody.appendChild(buildDetailRow(ch, a, ch.metrics.length + 2));
+        });
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        function mkTh(label, key2) {
+          var arrow = sortState.key === key2 ? (sortState.dir === 'asc' ? ' ▲' : ' ▼') : '';
+          var th = el('th', null, label + arrow);
+          th.addEventListener('click', function () {
+            if (sortState.key === key2) sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+            else { sortState.key = key2; sortState.dir = 'asc'; }
+            drawTable();
+          });
+          return th;
+        }
+      }
+      drawRings(); drawTable();
+      channelSections[key] = {
+        section: section, redraw: function () { drawRings(); drawTable(); },
+        openAccountFn: function (name) { openAccount = name; drawTable(); section.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+      };
+      channelPanel.appendChild(section);
+    });
+
+    function openChannel(key, focusAccount) {
+      CP_CHANNEL_ORDER.forEach(function (k) {
+        var isTarget = k === key;
+        var wasOpen = channelSections[k].section.classList.contains('open');
+        channelSections[k].section.classList.toggle('open', isTarget ? !(wasOpen && activeEntity.channel === key) : false);
+        channelCardEls[k] && channelCardEls[k].classList.toggle('active', isTarget && channelSections[k].section.classList.contains('open'));
+      });
+      activeEntity.channel = channelSections[key].section.classList.contains('open') ? key : null;
+      if (channelSections[key].section.classList.contains('open')) {
+        if (focusAccount) channelSections[key].openAccountFn(focusAccount);
+        else channelSections[key].section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    var supporterSections = {};
+    SUPPORTERS.forEach(function (name) {
+      var entries = supporterEntries(name);
+      var section = el('div', 'card cp-detail-section');
+      var titleEl = el('div', 'section-title', name);
+      section.appendChild(titleEl);
+      var tableWrap = el('div'); section.appendChild(tableWrap);
+      var sortState = { key: 'account', dir: 'asc' };
+      var openAccount = null;
+
+      function drawTable() {
+        titleEl.textContent = name + ' — ' + entries.length + ' account phụ trách, tuần ' + WEEKS[selectedWeek].label;
+        tableWrap.innerHTML = '';
+        var rows = entries.slice().sort(function (a, b) {
+          function val(e) { return sortState.key === 'pass' ? cpAccountPassCount(CHANNELS[e.channel].metrics, e.acc, selectedWeek) : e[sortState.key]; }
+          var va = val(a), vb = val(b);
+          if (typeof va === 'string') return sortState.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+          return sortState.dir === 'asc' ? va - vb : vb - va;
+        });
+        var table = el('table', 'data-table');
+        var thead = el('thead'); var headRow = el('tr');
+        headRow.appendChild(mkTh('Account', 'account'));
+        headRow.appendChild(mkTh('Kênh', 'channel'));
+        headRow.appendChild(mkTh('Chỉ số đạt', 'pass'));
+        headRow.appendChild(el('th', null, 'Trạng thái'));
+        headRow.appendChild(el('th', null, 'Xu hướng'));
+        thead.appendChild(headRow); table.appendChild(thead);
+        var tbody = el('tbody');
+        rows.forEach(function (e) {
+          var ch = CHANNELS[e.channel];
+          var passN = cpAccountPassCount(ch.metrics, e.acc, selectedWeek);
+          var full = passN === ch.metrics.length;
+          var tr = el('tr');
+          if (openAccount === e.account) tr.classList.add('row-active');
+          tr.appendChild(el('td', null, '<b>' + e.account + '</b>'));
+          var chanTd = el('td');
+          var tag = el('span', 'cp-chan-tag', e.channel);
+          tag.style.background = CP_COLOR[e.channel];
+          chanTd.appendChild(tag);
+          tr.appendChild(chanTd);
+          tr.appendChild(el('td', null, passN + '/' + ch.metrics.length));
+          tr.appendChild(el('td', null, '<span class="cp-badge ' + (full ? 'cp-badge-pass' : 'cp-badge-fail') + '">' + (full ? 'Đạt' : 'Không đạt') + '</span>'));
+          var sparkTd = el('td');
+          var passSeries = WEEKS.map(function (w, idx) { return cpAccountPassCount(ch.metrics, e.acc, idx); });
+          sparkTd.appendChild(cpSparkline(passSeries, 60, 20, getVar('--series-1')));
+          tr.appendChild(sparkTd);
+          tr.addEventListener('click', function () { openAccount = openAccount === e.account ? null : e.account; drawTable(); });
+          tbody.appendChild(tr);
+          if (openAccount === e.account) tbody.appendChild(buildDetailRow(ch, e.acc, 5));
+        });
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        function mkTh(label, key2) {
+          var arrow = sortState.key === key2 ? (sortState.dir === 'asc' ? ' ▲' : ' ▼') : '';
+          var th = el('th', null, label + arrow);
+          th.addEventListener('click', function () {
+            if (sortState.key === key2) sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+            else { sortState.key = key2; sortState.dir = 'asc'; }
+            drawTable();
+          });
+          return th;
+        }
+      }
+      drawTable();
+      supporterSections[name] = {
+        section: section, redraw: drawTable,
+        openAccountFn: function (acc) { openAccount = acc; drawTable(); section.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+      };
+      supporterPanel.appendChild(section);
+    });
+
+    function openSupporter(name) {
+      SUPPORTERS.forEach(function (n) {
+        var isTarget = n === name;
+        var wasOpen = supporterSections[n].section.classList.contains('open');
+        supporterSections[n].section.classList.toggle('open', isTarget ? !(wasOpen && activeEntity.supporter === name) : false);
+        supporterCardEls[n] && supporterCardEls[n].classList.toggle('active', isTarget && supporterSections[n].section.classList.contains('open'));
+      });
+      activeEntity.supporter = supporterSections[name].section.classList.contains('open') ? name : null;
+      if (supporterSections[name].section.classList.contains('open')) supporterSections[name].section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function switchView(view) {
+      currentView = view;
+      btnChannel.classList.toggle('active', view === 'channel');
+      btnSupporter.classList.toggle('active', view === 'supporter');
+      channelPanel.style.display = view === 'channel' ? 'block' : 'none';
+      supporterPanel.style.display = view === 'supporter' ? 'block' : 'none';
+      renderTopRow();
+      renderSupporterCompare();
+      renderReviewRecovery();
+    }
+    btnChannel.addEventListener('click', function () { switchView('channel'); });
+    btnSupporter.addEventListener('click', function () { switchView('supporter'); });
+
+    function cpRerenderAll() {
+      renderHealthRow();
+      renderTopRow();
+      renderSupporterCompare();
+      renderWatch();
+      CP_CHANNEL_ORDER.forEach(function (k) { channelSections[k].redraw(); });
+      SUPPORTERS.forEach(function (n) { supporterSections[n].redraw(); });
+    }
+
+    buildCalendarPopover();
+    supporterPanel.style.display = 'none';
+    renderHealthRow();
+    renderTopRow();
+    renderSupporterCompare();
+    renderReviewRecovery();
+    renderWatch();
   }
 
   // ---- Tab 3: FBA Issues ----
@@ -1015,12 +1822,23 @@ const SCRIPT = `
     })();
 
     (function () {
-      var alerts = DATA.channelPerformance.alerts;
-      var status = alerts.length > 0 ? 'critical' : 'good';
-      var note = alerts.length
-        ? (alerts.length + ' cảnh báo vượt ngưỡng — vd ' + alerts[0].account + ': ' + alerts[0].metric + '.')
-        : 'Không có account nào vượt ngưỡng an toàn.';
-      renderStatusCard(grid, { tabName: 'channelPerformance', title: 'Channel Performance', status: status, value: alerts.length, note: note });
+      var cd = DATA.channelPerformance || { weeks: [], channels: {} };
+      var latestIdx = cd.weeks.length - 1;
+      var failing = [];
+      if (latestIdx >= 0) {
+        CP_CHANNEL_ORDER.forEach(function (key) {
+          var ch = { metrics: CP_TARGETS[key] || [], accounts: (cd.channels[key] || {}).accounts || [] };
+          ch.accounts.forEach(function (a) {
+            var hasData = ch.metrics.some(function (m) { return cpValAt(a, m.key, latestIdx) !== null; });
+            if (hasData && !cpAccountFullyPasses(ch.metrics, a, latestIdx)) failing.push({ account: a.account, channel: key });
+          });
+        });
+      }
+      var status = failing.length > 0 ? 'critical' : 'good';
+      var note = failing.length
+        ? (failing.length + ' account chưa đạt chuẩn — vd ' + failing[0].account + ' (' + failing[0].channel + ').')
+        : 'Toàn bộ account đang đạt chuẩn.';
+      renderStatusCard(grid, { tabName: 'channelPerformance', title: 'Channel Performance', status: status, value: failing.length, note: note });
     })();
 
     (function () {

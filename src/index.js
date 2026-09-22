@@ -1,5 +1,8 @@
 import { KV_KEY, KV_KEY_DATA } from "./config.js";
 
+const KV_KEY_LAST_REFRESH_TRIGGER = "dashboard:lastRefreshTriggerAt";
+const REFRESH_COOLDOWN_MS = 60 * 1000; // matches the button's own 30s disable + margin
+
 // This Worker no longer fetches Lark data itself — that work now runs as a
 // single GitHub Actions job (see .github/workflows/refresh-dashboard.yml +
 // scripts/build-and-publish.mjs), which has no Cloudflare-Workers-style
@@ -87,6 +90,35 @@ export default {
       }
     }
 
+    // Public — anyone with the dashboard link can trigger a refresh from the
+    // "🔄 Cập nhật dữ liệu mới" button on the page itself (no admin token).
+    // A short server-side cooldown stops a page full of people from
+    // spam-triggering GitHub Actions runs (each run is real Lark API + CI
+    // usage, not free to spam even if it's free per-run).
+    if (url.pathname === "/refresh" && request.method === "POST") {
+      const lastRaw = await env.DASHBOARD_KV.get(KV_KEY_LAST_REFRESH_TRIGGER);
+      const last = lastRaw ? Number(lastRaw) : 0;
+      const now = Date.now();
+      if (now - last < REFRESH_COOLDOWN_MS) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "Vừa mới có người bấm cập nhật, đợi 1 phút rồi thử lại." }),
+          { status: 429, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      try {
+        await env.DASHBOARD_KV.put(KV_KEY_LAST_REFRESH_TRIGGER, String(now));
+        await triggerGithubRefresh(env, {});
+        return new Response(JSON.stringify({ ok: true, queued: true }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ ok: false, error: String(err) }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+
     if (url.pathname === "/telegram" && request.method === "POST") {
       const secretHeader = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
       if (secretHeader !== env.TELEGRAM_WEBHOOK_SECRET) {
@@ -128,4 +160,3 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 };
-

@@ -1,86 +1,81 @@
-import { asText, asNumber, asDate, monthKey, monthLabel } from "../utils.js";
-import { CHANNEL_HEALTH_THRESHOLDS } from "../config.js";
+import { asText, asNumber, asDate, normalizeVN, weekKey, weekLabel } from "../utils.js";
+import { CHANNEL_PERF_TARGETS, CHANNEL_LARK_VALUE } from "../config.js";
 
-const METRICS = [
-  "A-Z claims",
-  "Chargback claims",
-  "Late shipment rate",
-  "Negative feeback",
-  "On-time delivery rate",
-  "Review rate (AMZ)",
-  "Seller ODR <0.5%",
-  "Valid tracking rate",
-];
+const CHANNEL_KEYS = Object.keys(CHANNEL_PERF_TARGETS);
 
-// "Higher is better" metrics warn when they DROP below the threshold; the
-// rest (claim/complaint rates) warn when they RISE above it.
-const HIGHER_IS_BETTER = new Set(["Valid tracking rate", "On-time delivery rate"]);
+function channelForLarkValue(raw) {
+  const v = raw.trim().toUpperCase();
+  return CHANNEL_KEYS.find((k) => CHANNEL_LARK_VALUE[k] === v) || null;
+}
 
+// `%`-unit fields come back from Lark as a 0-1 fraction (confirmed against
+// real rows: "Seller ODR <0.5%" = 0.001, "Valid tracking rate" = 0.9879,
+// TikTok's "...Rate (1.26)" columns = 0.0013 etc.) — normalize all of them to
+// plain percentage numbers so every threshold in config.js can be written in
+// the same "99" / "0.7" percentage units the user actually thinks in.
+// NOTE: TikTok's "60-Day After-Sales Handling Time" raw values look small
+// enough (0.093, 0.219) that they may be a fraction of a day rather than
+// plain hours — used as-is here (unit "h", no conversion). Worth spot-checking
+// one real row against Lark before trusting that column's pass/fail.
+function readMetricValue(row, m) {
+  const raw = row[m.field];
+  if (m.direction === "bool") return normalizeVN(asText(raw)).trim() === "dat";
+  const n = asNumber(raw);
+  return m.unit === "%" ? n * 100 : n;
+}
+
+// Ships raw per-account weekly history (not pre-computed pass/fail) — the
+// dashboard template applies CHANNEL_PERF_TARGETS client-side, the same way
+// it already does for Cancel/Refund's live filters. Missing weeks for an
+// account read as `null` (no report that week), not a fail.
 export function analyzeChannelPerformance(rows) {
-  const normalized = rows.map((r) => {
+  const perChannelAccountWeek = {}; // channel -> account -> weekKey -> { metricKey: value }
+  const weekKeysSeen = new Set();
+
+  for (const r of rows) {
+    const channel = channelForLarkValue(asText(r["Channel"]));
+    if (!channel) continue;
+    const account = asText(r["Account"]).trim();
+    if (!account) continue;
     const date = asDate(r["Date Report"]);
-    const metrics = {};
-    for (const m of METRICS) metrics[m] = asNumber(r[m]);
-    return {
-      account: asText(r["Account"]) || "Unknown",
-      channel: asText(r["Channel"]) || "Unknown",
-      date,
-      monthKey: date ? monthKey(date) : "Unknown",
-      metrics,
+    const wk = date ? weekKey(date) : null;
+    if (!wk) continue;
+    weekKeysSeen.add(wk);
+
+    const values = {};
+    for (const m of CHANNEL_PERF_TARGETS[channel]) {
+      if (!m.field) continue; // derived metric (AMZ's ODR) — filled in below
+      values[m.key] = readMetricValue(r, m);
+    }
+    if (channel === "AMZ") {
+      values.odr = (values.negFeedback || 0) + (values.azClaims || 0) + (values.chargeback || 0);
+    }
+
+    perChannelAccountWeek[channel] = perChannelAccountWeek[channel] || {};
+    perChannelAccountWeek[channel][account] = perChannelAccountWeek[channel][account] || {};
+    perChannelAccountWeek[channel][account][wk] = values;
+  }
+
+  const weeks = Array.from(weekKeysSeen)
+    .sort()
+    .map((key) => ({ key, label: weekLabel(key) }));
+
+  const channels = {};
+  for (const channel of CHANNEL_KEYS) {
+    const byAccount = perChannelAccountWeek[channel] || {};
+    channels[channel] = {
+      accounts: Object.keys(byAccount)
+        .sort()
+        .map((account) => {
+          const byWeek = byAccount[account];
+          const history = {};
+          for (const m of CHANNEL_PERF_TARGETS[channel]) {
+            history[m.key] = weeks.map((w) => (byWeek[w.key] ? byWeek[w.key][m.key] : null));
+          }
+          return { account, history };
+        }),
     };
-  });
-
-  const accounts = [...new Set(normalized.map((r) => r.account))].sort();
-
-  // Latest snapshot per account (most recent Date Report).
-  const latestByAccount = {};
-  for (const r of normalized) {
-    const current = latestByAccount[r.account];
-    if (!current || (r.date && current.date && r.date > current.date)) {
-      latestByAccount[r.account] = r;
-    }
   }
 
-  const alerts = [];
-  for (const account of accounts) {
-    const snap = latestByAccount[account];
-    if (!snap) continue;
-    for (const [metric, threshold] of Object.entries(CHANNEL_HEALTH_THRESHOLDS)) {
-      const value = snap.metrics[metric];
-      if (value === undefined) continue;
-      const breached = HIGHER_IS_BETTER.has(metric) ? value < threshold : value > threshold;
-      if (breached) {
-        alerts.push({ account, metric, value, threshold, direction: HIGHER_IS_BETTER.has(metric) ? "below" : "above" });
-      }
-    }
-  }
-
-  // Monthly series per metric, averaged across accounts that reported that month.
-  const monthKeys = [...new Set(normalized.map((r) => r.monthKey))].sort();
-  const monthlyByMetric = {};
-  for (const metric of METRICS) {
-    monthlyByMetric[metric] = monthKeys.map((key) => {
-      const rowsInMonth = normalized.filter((r) => r.monthKey === key);
-      const avg = rowsInMonth.length ? rowsInMonth.reduce((s, r) => s + r.metrics[metric], 0) / rowsInMonth.length : 0;
-      return { key, label: monthLabel(key), value: avg };
-    });
-  }
-
-  const accountTable = accounts.map((account) => ({
-    account,
-    channel: latestByAccount[account]?.channel || "Unknown",
-    metrics: latestByAccount[account]?.metrics || {},
-  }));
-
-  return {
-    kpis: [
-      { label: "Số account theo dõi", value: accounts.length },
-      { label: "Cảnh báo đang mở", value: alerts.length },
-    ],
-    accountTable,
-    monthlyByMetric,
-    alerts,
-    metricList: METRICS,
-    updatedAt: Date.now(),
-  };
+  return { weeks, channels, updatedAt: Date.now() };
 }

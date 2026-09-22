@@ -133,3 +133,18 @@ export function sortedEntries(groups, sortBy = "count", dir = "desc") {
 export function topN(groups, n = 8, sortBy = "count") {
   return sortedEntries(groups, sortBy, "desc").slice(0, n);
 }
+
+// Different tables spell the same sales channel differently — Report
+// Performance uses ETSY/AMZ/TIKTOK/WEB, the order tables use "Amazon FBM" /
+// "Etsy" / "TikTok Shop" / "Website/POD", and Cancel/Refund's raw `Channel`
+// column is free text CS typed. Fuzzy-match by keyword to one canonical key
+// instead of requiring an exact string match across all of them — the
+// channel vocabulary is small and unambiguous, unlike per-account names.
+export function normalizeChannelKey(raw) {
+  const t = normalizeVN(asText(raw));
+  if (t.includes("amazon") || t.includes("amz")) return "AMZ";
+  if (t.includes("etsy")) return "ETSY";
+  if (t.includes("tiktok")) return "TIKTOK";
+  if (t.includes("website") || t.includes("web") || t.includes("pod")) return "WEBSITE";
+  return null;
+}

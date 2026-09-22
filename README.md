@@ -8,12 +8,50 @@ cụ thể. Không có thao tác ghi nào vào Lark. Không dùng Shopify.
 
 0. **Tổng quan** — 1 thẻ trạng thái (🟢/🟡/🔴) mỗi mảng, so tuần Thứ6→Thứ5 vừa kết thúc trọn vẹn với tuần trước đó
 1. **Cancel/Refund** — bảng `CC&RF` + `TTS CC.RF.RS`, lọc theo ngày/tuần/tháng/quý/tuỳ chọn + kênh/store, bấm dòng breakdown để drill-down
-2. **Channel Performance** — bảng `Report Performance` (sức khoẻ account Amazon)
+2. **Channel Performance** — bảng `Report Performance` (4 nhóm cột ETSY/AMZ/TIKTOK/WEBSITE trong cùng 1 bảng) — xem [Channel Performance](#channel-performance) bên dưới, tab này phức tạp hơn hẳn các tab khác
 3. **FBA Issues** — bảng `FBA - SUP duty`
 4. **PayPal Dispute** — bảng `PayPal`
 5. **Orders theo kênh** — 9 bảng order (FF FBA, AMZ FBM BASE, Telani Orders, TWD11-12, shinewines, TTS Oassie, GMB, TTS Arvexo, TTS Axiara)
 
 Toàn bộ table_id/field mapping nằm trong `src/config.js`.
+
+## Channel Performance
+
+Đánh giá đạt/không đạt target theo tuần (không tính điểm quy đổi) cho từng
+account, theo đúng 4 bộ target đã chốt trong `CHANNEL_PERF_TARGETS`
+(`src/config.js`) — pass/fail/cận ngưỡng thuần theo threshold, không dùng
+công thức quy đổi điểm của file Quality Criteria gốc. 2 cách xem: **Theo
+kênh** và **Theo Supporter** (dùng `CS_MAP` trong `config.js`, lấy từ sheet
+"Assign acc" — là snapshot cố định, sửa tay trong code khi có đổi phân công,
+không có bảng Lark nào giữ mapping này).
+
+**Đã làm thật, chạy được ngay:**
+- Đọc toàn bộ lịch sử tuần từ `Report Performance` (mỗi dòng = 1 account/1
+  tuần), so target, tính delta/cảnh báo cận ngưỡng/sparkline theo tuần.
+- Bộ lọc tuần dạng lịch nhỏ, chỉ bấm được đúng ngày có báo cáo.
+- View Theo kênh (ring + bảng account, bấm chỉ số để lọc) và Theo Supporter
+  (so sánh xu hướng nhiều đường, bảng account theo từng supporter).
+- **Issue rate theo kênh** (`src/analyze/channelWorkload.js`) — Cancel/Refund
+  + PayPal Dispute ÷ số đơn xử lý, gộp theo ETSY/AMZ/TIKTOK/WEBSITE (không
+  xuống được theo account/supporter — `Store` trong 9 bảng order và `Account`
+  trong `Report Performance` không cùng cách đặt tên, không có khoá nối tin
+  cậy). FBA Issues bị loại khỏi phần này theo yêu cầu — bảng đó không có cột
+  account/store và không phải chỉ số do CS gây ra.
+- **Review recovery theo Supporter** (`src/analyze/reviews.js`) — đọc 3 bảng
+  `AMZ Review-FB-Voice` / `Etsy Review 2026` / `Tiktok Review` (table ID đã
+  chốt trong `REVIEW_TABLES`), đếm review 1-2★ + tỉ lệ đã xử lý (field
+  `Resolve`) theo từng supporter, chỉ tính được cho Etsy/TikTok (AMZ không có
+  bước xử lý theo chính sách Amazon).
+
+**Chưa làm — cần thêm input:**
+- **Ticket Zendesk theo supporter** — cần bạn set 3 secret
+  `ZENDESK_SUBDOMAIN` / `ZENDESK_EMAIL` / `ZENDESK_API_TOKEN` vào GitHub
+  Actions Secrets (xem hướng dẫn trong lịch sử chat), và code parse chữ ký
+  trong nội dung reply (`Chữ+DDMMYY`) — chưa xử lý case reply >1 lần/ngày
+  (chưa có mẫu thật để biết định dạng).
+- TikTok's "60-Day After-Sales Handling Time" — giá trị thô lấy được nhỏ bất
+  thường so target giờ (26.5h), **cần đối chiếu 1 dòng dữ liệu thật** trước
+  khi tin tưởng cột này pass/fail đúng.
 
 ## Kiến trúc (2 phần riêng biệt)
 
@@ -48,7 +86,22 @@ GET /  ←── trả HTML từ KV ──────── Cloudflare KV (dash
 ```
 
 Không có cron, không có lịch tự động, không có state machine nhiều bước —
-mỗi lần `/new` là đúng 1 lần Action chạy trọn vẹn từ đầu đến cuối.
+mỗi lần bấm nút/`/new` là đúng 1 lần Action chạy trọn vẹn từ đầu đến cuối.
+
+**Cách kích hoạt refresh — có 2 cách:**
+
+1. **Nút "🔄 Cập nhật dữ liệu mới" ngay trên trang dashboard** — ai mở link
+   cũng bấm được, không cần token/Telegram gì cả. Đây là cách chính, dùng
+   được cho cả nhóm. Có cooldown 60 giây phía server (lưu trong KV) để
+   tránh nhiều người bấm liên tục tạo quá nhiều lượt chạy Action.
+2. **Gõ `/new` trong nhóm Telegram** — **hiện KHÔNG dùng được** nếu Worker
+   vẫn đang ở domain `*.workers.dev` miễn phí: Telegram báo lỗi
+   `Failed to resolve host` khi gắn webhook vào domain này (đã kiểm chứng
+   không phải do lỗi Telegram toàn cục — thử gắn webhook vào
+   `https://www.google.com` thì thành công ngay). Chỉ khắc phục được nếu
+   gắn 1 custom domain riêng (~10-15$/năm) cho Worker. Nút refresh ở trên
+   là cách thay thế không cần domain riêng, nên coi Telegram là tuỳ chọn
+   phụ, không phải đường chính nữa.
 
 ## Yêu cầu trước khi setup
 
@@ -191,4 +244,3 @@ Test này build dashboard bằng dữ liệu giả, xác nhận toàn bộ analy
 - `/run` chỉ chạy khi có đúng `WORKER_ADMIN_TOKEN`.
 - GitHub Personal Access Token chỉ cần scope `repo`, không cần quyền admin/org nào khác.
 - Không secret nào được hard-code trong code hay commit vào git — Cloudflare secrets set bằng `wrangler secret put`, GitHub secrets set qua Settings → Secrets and variables → Actions.
-

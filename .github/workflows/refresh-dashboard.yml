@@ -31,4 +31,3 @@ jobs:
           CLIENT_CHAT_ID: ${{ github.event.client_payload.chat_id }}
           CLIENT_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
           CLIENT_ORIGIN: ${{ github.event.client_payload.origin }}
-

@@ -78,6 +78,9 @@ export function analyzePaypalDispute(rows) {
     monthly,
     breakdowns: { byCaseReason, bySupplier, byShippingStatus },
     winRateByReason: winRateByReason.sort((a, b) => b.count - a.count).slice(0, 8),
+    // Raw per-case list (with `channel`) — used by analyze/channelWorkload.js
+    // to compute issue rate per channel; not rendered directly by this tab.
+    cases: normalized,
     updatedAt: Date.now(),
   };
 }
