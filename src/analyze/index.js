@@ -16,20 +16,34 @@ import { analyzeReviewRecovery } from "./reviews.js";
 export async function fetchAll(env) {
   const token = await getTenantAccessToken(env);
 
-  const [ccrfRows, ttsCcrfRows, channelPerfRows, fbaIssueRows, paypalRows, amzReviewRows, etsyReviewRows, tiktokReviewRows] = await Promise.all([
+  const corePromise = Promise.all([
     listAllRecords(token, LARK_APP_TOKEN, TABLES.cancelRefund.id),
     listAllRecords(token, LARK_APP_TOKEN, TABLES.ttsCancelRefund.id),
     listAllRecords(token, LARK_APP_TOKEN, TABLES.channelPerformance.id),
     listAllRecords(token, LARK_APP_TOKEN, TABLES.fbaIssues.id),
     listAllRecords(token, LARK_APP_TOKEN, TABLES.paypalDispute.id),
+  ]);
+
+  // Review tables are a supplementary signal (review recovery), not core —
+  // one of them (AMZ Review-FB-Voice, image-heavy) has timed out fetching in
+  // practice. A persistent failure here degrades reviewRecovery to empty
+  // rather than failing the whole refresh and leaving Cancel/Refund, Channel
+  // Performance etc. stuck on stale data too.
+  const reviewPromise = Promise.all([
     listAllRecords(token, LARK_APP_TOKEN, REVIEW_TABLES.amzReviewFbVoice.id),
     listAllRecords(token, LARK_APP_TOKEN, REVIEW_TABLES.etsyReview2026.id),
     listAllRecords(token, LARK_APP_TOKEN, REVIEW_TABLES.tiktokReview.id),
-  ]);
+  ]).catch((err) => {
+    console.error("Review tables fetch failed, continuing without review recovery data:", err);
+    return [[], [], []];
+  });
 
-  const orderTablesData = await Promise.all(
+  const orderTablesPromise = Promise.all(
     ORDER_TABLES.map(async (table) => ({ table, rows: await listAllRecords(token, LARK_APP_TOKEN, table.id) }))
   );
+
+  const [[ccrfRows, ttsCcrfRows, channelPerfRows, fbaIssueRows, paypalRows], [amzReviewRows, etsyReviewRows, tiktokReviewRows], orderTablesData] =
+    await Promise.all([corePromise, reviewPromise, orderTablesPromise]);
 
   return {
     partA: { ccrfRows, ttsCcrfRows, channelPerfRows, fbaIssueRows, paypalRows, amzReviewRows, etsyReviewRows, tiktokReviewRows },

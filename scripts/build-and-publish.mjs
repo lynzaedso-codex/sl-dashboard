@@ -59,7 +59,7 @@ async function main() {
 
   try {
     const larkEnv = { LARK_APP_ID: env.LARK_APP_ID, LARK_APP_SECRET: env.LARK_APP_SECRET };
-    console.log("Fetching all 14 Lark tables...");
+    console.log("Fetching all 17 Lark tables (5 core + 3 review + 9 order)...");
     const { partA, orderTablesData } = await fetchAll(larkEnv);
     const data = combineAndAnalyze(partA, orderTablesData);
     const html = renderDashboard(data);

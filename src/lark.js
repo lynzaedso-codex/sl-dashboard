@@ -32,7 +32,18 @@ const TRANSIENT_LARK_CODES = new Set([1254607, 1255001]);
 
 async function fetchLarkPage(url, token, tableId, attempts = 4) {
   for (let i = 0; i < attempts; i++) {
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    // A raw network failure (timeout, reset, DNS hiccup — e.g. undici's
+    // HeadersTimeoutError on a slow/attachment-heavy table) throws before
+    // there's any response body to inspect. Retry that the same as Lark's
+    // own transient codes below, instead of letting it crash the whole run.
+    let resp;
+    try {
+      resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (err) {
+      if (i === attempts - 1) throw new Error(`Lark list records network failure for table ${tableId}: ${err.message}`);
+      await sleep(1000 * (i + 1));
+      continue;
+    }
     const data = await resp.json();
     if (data.code === 0) return data;
     const isTransient = TRANSIENT_LARK_CODES.has(data.code);

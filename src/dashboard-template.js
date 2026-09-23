@@ -1177,29 +1177,67 @@ const SCRIPT = `
       if (!wl) return;
       var card = el('div', 'card'); card.style.marginBottom = '16px';
       card.appendChild(el('div', 'section-title', 'Issue rate theo kênh (Cancel/Refund + PayPal Dispute ÷ số đơn xử lý)'));
-      var note = el('div', 'empty-note', 'Chuẩn hoá theo khối lượng đơn thay vì chỉ đếm case thô — issue rate thấp trên khối lượng lớn phản ánh vận hành tốt hơn hẳn issue rate thấp trên khối lượng nhỏ. WEBSITE chưa có "đơn" (sẽ dùng số ticket Zendesk khi nối xong).');
+      var note = el('div', 'empty-note', 'Chuẩn hoá theo khối lượng đơn thay vì chỉ đếm case thô — issue rate thấp trên khối lượng lớn phản ánh vận hành tốt hơn hẳn issue rate thấp trên khối lượng nhỏ. WEBSITE chưa có "đơn" (sẽ dùng số ticket Zendesk khi nối xong). Bảng này giống nhau ở cả 2 view (Theo kênh/Theo Supporter) — chưa xuống được cấp supporter, xem README.');
       note.style.textAlign = 'left'; note.style.padding = '0 0 10px';
       card.appendChild(note);
+      var tipNote = el('div', 'empty-note', 'Bấm vào 1 dòng để xem danh sách issue cụ thể.');
+      tipNote.style.textAlign = 'left'; tipNote.style.padding = '0 0 8px'; tipNote.style.fontStyle = 'italic';
+      card.appendChild(tipNote);
       var table = el('table', 'data-table');
       var thead = el('thead'); var hr = el('tr');
       ['Kênh', 'Số đơn xử lý', 'Số issue', 'Issue rate'].forEach(function (h) { hr.appendChild(el('th', null, h)); });
       thead.appendChild(hr); table.appendChild(thead);
       var tbody = el('tbody');
-      CP_CHANNEL_ORDER.forEach(function (key) {
-        var w = wl[key] || { volume: 0, issues: 0, issueRate: null };
-        var tr = el('tr');
-        var chanTd = el('td'); var tag = el('span', 'cp-chan-tag', key); tag.style.background = CP_COLOR[key]; chanTd.appendChild(tag);
-        tr.appendChild(chanTd);
-        tr.appendChild(el('td', null, w.volume ? w.volume.toLocaleString('vi-VN') : '—'));
-        tr.appendChild(el('td', null, String(w.issues)));
-        if (w.issueRate == null) {
-          tr.appendChild(el('td', null, '—'));
-        } else {
-          var cls = w.issueRate <= 1.5 ? 'cp-badge-pass' : w.issueRate <= 3 ? 'cp-badge-warn' : 'cp-badge-fail';
-          tr.appendChild(el('td', null, '<span class="cp-badge ' + cls + '">' + w.issueRate.toFixed(2) + '%</span>'));
-        }
-        tbody.appendChild(tr);
-      });
+      var openChannelRow = null;
+      function drawWorkloadTable() {
+        tbody.innerHTML = '';
+        CP_CHANNEL_ORDER.forEach(function (key) {
+          var w = wl[key] || { volume: 0, issues: 0, issueRate: null, issueList: [] };
+          var tr = el('tr');
+          if (openChannelRow === key) tr.classList.add('row-active');
+          var chanTd = el('td'); var tag = el('span', 'cp-chan-tag', key); tag.style.background = CP_COLOR[key]; chanTd.appendChild(tag);
+          tr.appendChild(chanTd);
+          tr.appendChild(el('td', null, w.volume ? w.volume.toLocaleString('vi-VN') : '—'));
+          tr.appendChild(el('td', null, String(w.issues)));
+          if (w.issueRate == null) {
+            tr.appendChild(el('td', null, '—'));
+          } else {
+            var cls = w.issueRate <= 1.5 ? 'cp-badge-pass' : w.issueRate <= 3 ? 'cp-badge-warn' : 'cp-badge-fail';
+            tr.appendChild(el('td', null, '<span class="cp-badge ' + cls + '">' + w.issueRate.toFixed(2) + '%</span>'));
+          }
+          if (w.issueList && w.issueList.length) {
+            tr.classList.add('row-clickable');
+            tr.addEventListener('click', function () { openChannelRow = openChannelRow === key ? null : key; drawWorkloadTable(); });
+          }
+          tbody.appendChild(tr);
+          if (openChannelRow === key) {
+            var detailTr = el('tr', 'cp-detail-row');
+            var detailTd = el('td'); detailTd.colSpan = 4;
+            detailTd.appendChild(el('div', 'section-title', 'Issue của ' + key + ' (' + w.issueList.length + ', mới nhất trước)'));
+            var innerTable = el('table', 'data-table');
+            var innerThead = el('thead'); var innerHr = el('tr');
+            ['Ngày', 'Nguồn', 'Store', 'Lý do', 'Chi tiết'].forEach(function (h) { innerHr.appendChild(el('th', null, h)); });
+            innerThead.appendChild(innerHr); innerTable.appendChild(innerThead);
+            var innerBody = el('tbody');
+            w.issueList.slice(0, 50).forEach(function (it) {
+              var itr = el('tr');
+              itr.appendChild(el('td', null, it.date ? new Date(it.date).toLocaleDateString('vi-VN') : '—'));
+              itr.appendChild(el('td', null, it.source));
+              itr.appendChild(el('td', null, it.store || '—'));
+              itr.appendChild(el('td', null, it.label || '—'));
+              itr.appendChild(el('td', null, it.detail || '—'));
+              innerBody.appendChild(itr);
+            });
+            innerTable.appendChild(innerBody);
+            var innerWrap = el('div'); innerWrap.style.overflowX = 'auto'; innerWrap.appendChild(innerTable);
+            detailTd.appendChild(innerWrap);
+            if (w.issueList.length > 50) detailTd.appendChild(el('div', 'empty-note', 'Chỉ hiện 50 issue mới nhất trong tổng ' + w.issueList.length + '.'));
+            detailTr.appendChild(detailTd);
+            tbody.appendChild(detailTr);
+          }
+        });
+      }
+      drawWorkloadTable();
       table.appendChild(tbody);
       card.appendChild(table);
       c.appendChild(card);
