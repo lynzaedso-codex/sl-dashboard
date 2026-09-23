@@ -8,13 +8,13 @@ TELEGRAM_ALLOWED_CHAT_ID = "-5343409122"
 # owner/repo of the GitHub repo running refresh-dashboard.yml — this Worker
 # calls its repository_dispatch API to kick off a refresh, it never talks
 # to Lark directly anymore (see scripts/build-and-publish.mjs instead).
-GITHUB_REPO = "REPLACE_ME_GITHUB_OWNER/REPLACE_ME_GITHUB_REPO"
+GITHUB_REPO = "lynzaedso-codex/sl-dashboard"
 
 # Create with: wrangler kv namespace create DASHBOARD_KV
 # then paste the returned id below.
 [[kv_namespaces]]
 binding = "DASHBOARD_KV"
-id = "REPLACE_ME_KV_NAMESPACE_ID"
+id = "a19abeab194245329eceb474f5f715cf"
 
 # Secrets — set with `wrangler secret put <NAME>`, never written here:
 #   TELEGRAM_BOT_TOKEN
